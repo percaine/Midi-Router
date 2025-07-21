@@ -1,0 +1,19 @@
+Uninstall Instructions
+
+sudo systemctl stop midi-router.service
+sudo systemctl disable midi-router.service
+sudo rm /etc/systemd/system/midi-router.service
+sudo systemctl daemon-reload
+
+sudo dpkg -r midi-router
+
+
+Also optionally remove
+
+sudo rm /usr/share/applications/midi-router.desktop
+sudo rm /usr/local/bin/midi-router.py
+sudo rm /usr/share/icons/hicolor/256x256/apps/midi-router.png
+
+
+
+

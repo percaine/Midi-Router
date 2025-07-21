@@ -1,0 +1,15 @@
+[Unit]
+Description=MIDI Router Flask Server
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=whatever your user is
+WorkingDirectory=/home/user
+ExecStart=/home/user/midi-env/bin/python /home/user/midi_router.py
+Restart=on-failure
+RestartSec=5
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
