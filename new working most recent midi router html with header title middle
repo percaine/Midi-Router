@@ -1,0 +1,601 @@
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MIDI Router Web GUI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .connection-line {
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            height: 2px;
+            border-radius: 1px;
+        }
+        .auto-connection-line {
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            height: 2px;
+            border-radius: 1px;
+        }
+        .pulse-dot {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .port-card {
+            transition: all 0.3s ease;
+        }
+        .port-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        #notification-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        /* Custom toggle switch */
+        .switch {
+          position: relative;
+          display: inline-block;
+          width: 40px;
+          height: 20px;
+        }
+        .switch input { 
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background-color: #ccc;
+          transition: .4s;
+          border-radius: 20px;
+        }
+        .slider:before {
+          position: absolute;
+          content: "";
+          height: 14px;
+          width: 14px;
+          left: 3px;
+          bottom: 3px;
+          background-color: white;
+          transition: .4s;
+          border-radius: 50%;
+        }
+        input:checked + .slider {
+          background-color: #4ade80;
+        }
+        input:checked + .slider:before {
+          transform: translateX(20px);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-6 py-8">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <!-- Left side - empty now -->
+            <div class="w-1/4"></div>
+            
+            <!-- Center - title moved here -->
+            <div class="flex flex-col items-center justify-center w-1/2">
+                <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent text-center">
+                    MIDI Router
+                </h1>
+                <p class="text-gray-400 text-sm text-center">USB MIDI HOST</p>
+            </div>
+            
+            <!-- Right side - controls -->
+            <div class="flex items-center space-x-5 w-1/4 justify-end">
+                <!-- Manual mode toggle -->
+                <label for="manual-mode-toggle" class="flex items-center cursor-pointer select-none text-gray-300 text-sm space-x-2">
+                    <span>Manual Mode</span>
+                    <div class="switch">
+                        <input type="checkbox" id="manual-mode-toggle" />
+                        <span class="slider"></span>
+                    </div>
+                </label>
+                
+                <button id="refresh-button" onclick="refreshData()" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg transition-colors flex items-center space-x-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Connection Status -->
+        <div class="mb-6">
+            <div id="connection-status" class="bg-red-800 border border-red-600 rounded-lg p-4 flex items-center space-x-3">
+                <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                <span>Connecting to MIDI server...</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Available Ports -->
+            <div class="lg:col-span-1">
+                <div class="bg-gray-800 rounded-xl p-6 h-fit">
+                    <div class="flex items-center space-x-2 mb-4">
+                        <svg class="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
+                        </svg>
+                        <h2 class="text-xl font-semibold">DEVICES</h2>
+                        <span id="port-count" class="bg-blue-500 text-xs px-2 py-1 rounded-full">0</span>
+                    </div>
+                    <div id="port-list" class="space-y-2">
+                        <div class="text-center py-4 text-gray-500">
+                            <div class="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+                            <p class="text-sm">Loading ports...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connection Management -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Create Connection -->
+                <div class="bg-gray-800 rounded-xl p-6">
+                    <div class="flex items-center space-x-2 mb-4">
+                        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                        </svg>
+                        <h2 class="text-xl font-semibold">Connect</h2>
+                    </div>
+                    <form onsubmit="handleConnect(event)" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <select name="from" id="from-port" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">-- Select Input Source --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <select name="to" id="to-port" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">-- Select Output Destination --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 px-4 py-2 rounded-lg transition-all duration-200 font-medium">
+                            Connect
+                        </button>
+                    </form>
+                </div>
+        
+                <!-- Disconnect Connection Section -->
+                <div class="bg-gray-800 rounded-xl p-6">
+                    <div class="flex items-center space-x-2 mb-4">
+                        <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                        <h2 class="text-xl font-semibold">Disconnect</h2>
+                    </div>
+                    <form onsubmit="handleDisconnect(event)" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <select name="from" id="disconnect-from-port" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-500 focus:border-transparent">
+                                    <option value="">-- Select Input Source --</option>
+                                </select>
+                            </div>
+                            <div>
+                                <select name="to" id="disconnect-to-port" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-500 focus:border-transparent">
+                                    <option value="">-- Select Output Destination --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-gradient-to-r from-red-500 to-purple-600 hover:from-red-600 hover:to-purple-700 px-4 py-2 rounded-lg transition-all duration-200 font-medium">
+                            Disconnect
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Active Connections -->
+                <div class="bg-gray-800 rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-2">
+                            <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                            </svg>
+                            <h2 class="text-xl font-semibold">Active Connections</h2>
+                            <span id="connection-count" class="bg-purple-500 text-xs px-2 py-1 rounded-full">0</span>
+                        </div>
+                    </div>
+                    <div id="connection-list" class="space-y-3">
+                    </div>
+                    <div id="no-connections" class="text-center py-8 text-gray-500">
+                        <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                        </svg>
+                        <p>No active connections</p>
+                        <p class="text-sm">USB devices auto-connect when plugged in</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="notification-container"></div>
+    <script>
+        let serverConnected = false;
+        let retryCount = 0;
+        const maxRetries = 5;
+
+        async function fetchData(showNotificationOnError = true) {
+            try {
+                const response = await fetch('/status', { method: 'GET' });
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                updateConnectionStatus(true);
+                updatePortList(data.input_ports, data.output_ports);
+                updateConnectionList(data.connections, data.auto_connections, data.manual_connections);
+                updateDisconnectDropdowns(data.connections);
+
+                const manualModeToggle = document.getElementById('manual-mode-toggle');
+                if (manualModeToggle && manualModeToggle.checked !== data.manual_mode) {
+                    manualModeToggle.checked = data.manual_mode;
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                retryCount++;
+                updateConnectionStatus(false);
+                updatePortList([], []);
+                updateConnectionList([], [], []);
+                updateDisconnectDropdowns([]);
+
+                if (showNotificationOnError && retryCount <= maxRetries) {
+                    showNotification(`Server connection failed, retrying... (${retryCount}/${maxRetries})`, 'error');
+                } else if (showNotificationOnError) {
+                    showNotification('Running in disconnected mode', 'info');
+                }
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusDiv = document.getElementById('connection-status');
+            if (connected) {
+                statusDiv.className = 'bg-green-800 border border-green-600 rounded-lg p-4 flex items-center space-x-3';
+                statusDiv.innerHTML = `
+                    <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span>Connected to MIDI server</span>
+                `;
+                serverConnected = true;
+                retryCount = 0;
+            } else {
+                statusDiv.className = 'bg-red-800 border border-red-600 rounded-lg p-4 flex items-center space-x-3';
+                statusDiv.innerHTML = `
+                    <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                    <span>Cannot connect to MIDI server</span>
+                `;
+                serverConnected = false;
+            }
+        }
+
+        function updatePortList(inputPorts, outputPorts) {
+            const portList = document.getElementById('port-list');
+            const portCount = document.getElementById('port-count');
+            const fromSelect = document.getElementById('from-port');
+            const toSelect = document.getElementById('to-port');
+            const disconnectFromSelect = document.getElementById('disconnect-from-port');
+            const disconnectToSelect = document.getElementById('disconnect-to-port');
+
+            const currentFrom = fromSelect.value;
+            const currentTo = toSelect.value;
+            const currentDisconnectFrom = disconnectFromSelect.value;
+            const currentDisconnectTo = disconnectToSelect.value;
+
+            const totalPorts = [...new Set([...inputPorts, ...outputPorts])].length;
+            portCount.textContent = totalPorts;
+
+            portList.innerHTML = '';
+            fromSelect.innerHTML = '<option value="">-- Select Input Source --</option>';
+            toSelect.innerHTML = '<option value="">-- Select Output Destination --</option>';
+
+            const allPorts = [...new Set([...inputPorts, ...outputPorts])];
+
+            if (allPorts.length === 0) {
+                portList.innerHTML = `
+                    <div class="text-center py-4 text-gray-500">
+                        <p class="text-sm">No available MIDI devices detected</p>
+                    </div>
+                `;
+                return;
+            }
+
+            allPorts.forEach(port => {
+                const isInput = inputPorts.includes(port);
+                const isOutput = outputPorts.includes(port);
+                const portType = isInput && isOutput ? 'Input/Output' : isInput ? 'Input' : 'Output';
+                const portColor = isInput && isOutput ? 'bg-green-400' : isInput ? 'bg-blue-400' : 'bg-purple-400';
+
+                const isThrough = port.toLowerCase().includes('through') || port.toLowerCase().includes('thru');
+                const isUSB = !isThrough && (
+                    port.toLowerCase().includes('usb') ||
+                    ['arturia', 'roland', 'yamaha', 'korg', 'novation', 'native instruments', 'controller', 'keyboard'].some(brand =>
+                        port.toLowerCase().includes(brand.toLowerCase())
+                    )
+                );
+                const deviceType = isThrough ? 'Through' : isUSB ? 'USB' : 'MIDI';
+                const deviceColor = isThrough ? 'bg-blue-600' : isUSB ? 'bg-green-600' : 'bg-gray-600';
+
+                const portCard = document.createElement('div');
+                portCard.className = 'port-card bg-gray-700 p-3 rounded-lg flex items-center justify-between';
+                portCard.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-2 h-2 ${portColor} rounded-full"></div>
+                        <div>
+                            <div class="text-sm font-medium flex items-center space-x-2">
+                                <span>${port}</span>
+                                <span class="text-xs ${deviceColor} px-1 py-0.5 rounded">${deviceType}</span>
+                            </div>
+                            <div class="text-xs text-gray-400">${portType}</div>
+                        </div>
+                    </div>
+                `;
+                portList.appendChild(portCard);
+            });
+
+            inputPorts.forEach(port => {
+                const fromOption = document.createElement('option');
+                fromOption.value = port;
+                fromOption.textContent = port;
+                if (port === currentFrom) fromOption.selected = true;
+                fromSelect.appendChild(fromOption);
+            });
+
+            outputPorts.forEach(port => {
+                const toOption = document.createElement('option');
+                toOption.value = port;
+                toOption.textContent = port;
+                if (port === currentTo) toOption.selected = true;
+                toSelect.appendChild(toOption);
+            });
+        }
+
+        function updateDisconnectDropdowns(connections) {
+            const disconnectFromSelect = document.getElementById('disconnect-from-port');
+            const disconnectToSelect = document.getElementById('disconnect-to-port');
+
+            const currentDisconnectFrom = disconnectFromSelect.value;
+            const currentDisconnectTo = disconnectToSelect.value;
+
+            disconnectFromSelect.innerHTML = '<option value="">-- Select Input Source --</option>';
+            disconnectToSelect.innerHTML = '<option value="">-- Select Output Destination --</option>';
+
+            const inputsSet = new Set();
+            const outputsSet = new Set();
+
+            connections.forEach(connection => {
+                inputsSet.add(connection[0]);
+                outputsSet.add(connection[1]);
+            });
+
+            inputsSet.forEach(port => {
+                const option = document.createElement('option');
+                option.value = port;
+                option.textContent = port + ' (connected)';
+                option.classList.add('font-semibold', 'text-blue-300');
+                if (port === currentDisconnectFrom) option.selected = true;
+                disconnectFromSelect.appendChild(option);
+            });
+
+            outputsSet.forEach(port => {
+                const option = document.createElement('option');
+                option.value = port;
+                option.textContent = port + ' (connected)';
+                option.classList.add('font-semibold', 'text-purple-300');
+                if (port === currentDisconnectTo) option.selected = true;
+                disconnectToSelect.appendChild(option);
+            });
+        }
+
+        function updateConnectionList(connections, autoConnections, manualConnections) {
+            const connectionList = document.getElementById('connection-list');
+            const connectionCount = document.getElementById('connection-count');
+            const noConnections = document.getElementById('no-connections');
+
+            connectionCount.textContent = connections.length;
+            connectionList.innerHTML = '';
+
+            if (connections.length === 0) {
+                noConnections.style.display = 'block';
+            } else {
+                noConnections.style.display = 'none';
+                connections.forEach(connection => {
+                    const isAutoConnection = autoConnections.some(auto =>
+                        auto[0] === connection[0] && auto[1] === connection[1]
+                    );
+
+                    const shortenName = (name) => {
+                        return name.replace(/^USB MIDI:USB MIDI /, '').replace(/^MIDI Through:/, '');
+                    };
+
+                    const connectionCard = document.createElement('div');
+                    connectionCard.className = 'bg-gray-700 p-4 rounded-lg';
+                    connectionCard.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-4 flex-1">
+                                <div class="bg-blue-500 px-3 py-1 rounded-full text-xs font-medium max-w-xs truncate">
+                                    ${shortenName(connection[0])}
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="${isAutoConnection ? 'auto-connection-line' : 'connection-line'} w-8"></div>
+                                    <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                    </svg>
+                                    <div class="${isAutoConnection ? 'auto-connection-line' : 'connection-line'} w-8"></div>
+                                </div>
+                                <div class="bg-purple-500 px-3 py-1 rounded-full text-xs font-medium max-w-xs truncate">
+                                    ${shortenName(connection[1])}
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button onclick="disconnectConnection('${connection[0]}', '${connection[1]}')" class="text-red-400 hover:text-red-300 p-1" title="Disconnect">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    connectionList.appendChild(connectionCard);
+                });
+            }
+        }
+
+        async function handleConnect(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const fromPort = formData.get('from');
+            const toPort = formData.get('to');
+
+            if (!fromPort || !toPort) {
+                showNotification('Please select both input and output ports', 'error');
+                return;
+            }
+
+            if (fromPort === toPort) {
+                showNotification('Input and output ports cannot be the same', 'error');
+                return;
+            }
+
+            if (!serverConnected) {
+                showNotification('Demo mode: Connection would be created in real server', 'info');
+                return;
+            }
+
+            try {
+                const response = await fetch('/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `from=${encodeURIComponent(fromPort)}&to=${encodeURIComponent(toPort)}`
+                });
+                if (response.ok) {
+                    showNotification('MIDI connection created successfully!', 'success');
+                    fetchData();
+                } else {
+                    showNotification('Failed to create connection', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating connection:', error);
+                showNotification('Error creating connection', 'error');
+            }
+        }
+
+        async function handleDisconnect(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const fromPort = formData.get('from');
+            const toPort = formData.get('to');
+
+            if (!fromPort || !toPort) {
+                showNotification('Please select both input and output ports', 'error');
+                return;
+            }
+
+            if (!serverConnected) {
+                showNotification('Demo mode: Connection would be disconnected in real server', 'info');
+                return;
+            }
+
+            try {
+                const response = await fetch('/disconnect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `from=${encodeURIComponent(fromPort)}&to=${encodeURIComponent(toPort)}`
+                });
+                if (response.ok) {
+                    showNotification('MIDI connection disconnected', 'info');
+                    fetchData();
+                } else {
+                    showNotification('Failed to disconnect', 'error');
+                }
+            } catch (error) {
+                console.error('Error disconnecting:', error);
+                showNotification('Error disconnecting', 'error');
+            }
+        }
+
+        async function disconnectConnection(fromPort, toPort) {
+            if (!serverConnected) {
+                showNotification('Demo mode: Connection would be disconnected in real server', 'info');
+                return;
+            }
+
+            try {
+                const response = await fetch('/disconnect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `from=${encodeURIComponent(fromPort)}&to=${encodeURIComponent(toPort)}`
+                });
+                if (response.ok) {
+                    showNotification('MIDI connection disconnected', 'info');
+                    fetchData();
+                } else {
+                    showNotification('Failed to disconnect', 'error');
+                }
+            } catch (error) {
+                console.error('Error disconnecting:', error);
+                showNotification('Error disconnecting', 'error');
+            }
+        }
+
+        function refreshData() {
+            fetchData(false);
+        }
+
+        function showNotification(message, type) {
+            if (message === 'Data refreshed') return;
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `px-4 py-2 rounded-lg text-white z-50 transition-all duration-300 ${
+                type === 'success' ? 'bg-green-500' :
+                type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+            }`;
+            notification.textContent = message;
+            container.appendChild(notification);
+            setTimeout(() => { notification.remove(); }, 3000);
+        }
+
+        document.getElementById('manual-mode-toggle').addEventListener('change', async function() {
+            try {
+                const newValue = this.checked;
+                const response = await fetch('/toggle_manual_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ manual_mode: newValue })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    showNotification(`Manual mode ${data.manual_mode ? 'enabled' : 'disabled'}`, 'info');
+                    fetchData(false);
+                } else {
+                    showNotification('Failed to toggle manual mode', 'error');
+                    this.checked = !newValue; // revert toggle on failure
+                }
+            } catch (err) {
+                showNotification('Error toggling manual mode', 'error');
+                this.checked = !this.checked; // revert toggle on error
+            }
+        });
+
+        // Initial connection status and fetch
+        updateConnectionStatus(false);
+        fetchData();
+
+        setInterval(() => {
+            if (retryCount <= maxRetries) fetchData(false);
+        }, 2000);
+    </script>
+</body>
+</html>
+"""
